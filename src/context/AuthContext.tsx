@@ -1,5 +1,11 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 type StoredUser = {
   email: string;
@@ -13,13 +19,20 @@ type SessionUser = {
 type AuthContextType = {
   user: SessionUser | null;
   isBootstrapping: boolean;
-  login: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
-  register: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
+  login: (
+    email: string,
+    password: string,
+  ) => Promise<{ ok: boolean; message?: string }>;
+  register: (
+    email: string,
+    password: string,
+  ) => Promise<{ ok: boolean; message?: string }>;
   logout: () => Promise<void>;
+  switchAccount: (email: string) => Promise<void>;
 };
 
-const USERS_KEY = 'demo_users';
-const SESSION_KEY = 'demo_session';
+const USERS_KEY = "demo_users";
+const SESSION_KEY = "demo_session";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -72,17 +85,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const normalizedPassword = password.trim();
 
     if (!normalizedEmail || !normalizedPassword) {
-      return { ok: false, message: 'Completa email y contrasena.' };
+      return { ok: false, message: "Completa email y contrasena." };
     }
 
     const users = await getUsers();
     const found = users.find(
       (storedUser) =>
-        normalizeEmail(storedUser.email) === normalizedEmail && storedUser.password === normalizedPassword,
+        normalizeEmail(storedUser.email) === normalizedEmail &&
+        storedUser.password === normalizedPassword,
     );
 
     if (!found) {
-      return { ok: false, message: 'Credenciales invalidas.' };
+      return { ok: false, message: "Credenciales invalidas." };
     }
 
     const nextUser = { email: normalizedEmail };
@@ -96,21 +110,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const normalizedPassword = password.trim();
 
     if (!normalizedEmail || !normalizedPassword) {
-      return { ok: false, message: 'Completa email y contrasena.' };
+      return { ok: false, message: "Completa email y contrasena." };
     }
 
     if (normalizedPassword.length < 6) {
-      return { ok: false, message: 'La contrasena debe tener al menos 6 caracteres.' };
+      return {
+        ok: false,
+        message: "La contrasena debe tener al menos 6 caracteres.",
+      };
     }
 
     const users = await getUsers();
-    const alreadyExists = users.some((storedUser) => normalizeEmail(storedUser.email) === normalizedEmail);
+    const alreadyExists = users.some(
+      (storedUser) => normalizeEmail(storedUser.email) === normalizedEmail,
+    );
 
     if (alreadyExists) {
-      return { ok: false, message: 'Ese email ya existe.' };
+      return { ok: false, message: "Ese email ya existe." };
     }
 
-    const updatedUsers = [...users, { email: normalizedEmail, password: normalizedPassword }];
+    const updatedUsers = [
+      ...users,
+      { email: normalizedEmail, password: normalizedPassword },
+    ];
     await AsyncStorage.setItem(USERS_KEY, JSON.stringify(updatedUsers));
 
     const nextUser = { email: normalizedEmail };
@@ -125,6 +147,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const switchAccount = async (email: string) => {
+    const users = await getUsers();
+    const found = users.find(
+      (user) => normalizeEmail(user.email) === normalizeEmail(email),
+    );
+
+    if (!found) {
+      throw new Error("Cuenta no encontrada.");
+    }
+
+    const nextUser = { email: normalizeEmail(email) };
+    await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(nextUser));
+    setUser(nextUser);
+  };
+
   const value = useMemo(
     () => ({
       user,
@@ -132,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       register,
       logout,
+      switchAccount,
     }),
     [isBootstrapping, user],
   );
@@ -142,7 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth debe usarse dentro de AuthProvider');
+    throw new Error("useAuth debe usarse dentro de AuthProvider");
   }
   return context;
 }
