@@ -1,9 +1,10 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, View, useColorScheme } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { AppThemeProvider, useAppTheme } from '@/context/ThemeContext';
 
 function RootNavigator() {
   const { user, isBootstrapping } = useAuth();
@@ -43,8 +44,16 @@ function RootNavigator() {
   );
 }
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
+function RootLayoutContent() {
+  const { colorScheme, isThemeReady } = useAppTheme();
+
+  if (!isThemeReady) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
@@ -52,5 +61,13 @@ export default function RootLayout() {
         <RootNavigator />
       </AuthProvider>
     </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AppThemeProvider>
+      <RootLayoutContent />
+    </AppThemeProvider>
   );
 }

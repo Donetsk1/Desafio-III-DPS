@@ -3,9 +3,15 @@ import React, { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '@/context/AuthContext';
+import { useAppTheme } from '@/context/ThemeContext';
+import { useTheme } from '@/hooks/use-theme';
 
 export default function LoginScreen() {
   const { login } = useAuth();
+  const { colorScheme } = useAppTheme();
+  const theme = useTheme();
+  const isDark = colorScheme === 'dark';
+  const styles = createStyles(theme, isDark);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -64,49 +70,53 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (
+  theme: { text: string; background: string; backgroundElement: string; textSecondary: string },
+  isDark: boolean,
+) =>
+  StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
     padding: 24,
     gap: 14,
-    backgroundColor: '#0f172a',
+    backgroundColor: theme.background,
   },
   title: {
-    color: '#f8fafc',
+    color: theme.text,
     fontSize: 30,
     fontWeight: '800',
   },
   subtitle: {
-    color: '#cbd5e1',
+    color: theme.textSecondary,
     marginBottom: 8,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: isDark ? '#334155' : '#cbd5e1',
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: '#f8fafc',
-    backgroundColor: '#111827',
+    color: theme.text,
+    backgroundColor: theme.backgroundElement,
   },
   button: {
     marginTop: 6,
     borderRadius: 10,
-    backgroundColor: '#22c55e',
+    backgroundColor: isDark ? '#22c55e' : '#16a34a',
     paddingVertical: 12,
     alignItems: 'center',
   },
   buttonText: {
-    color: '#052e16',
+    color: isDark ? '#052e16' : '#f0fdf4',
     fontWeight: '700',
   },
   helperText: {
-    color: '#cbd5e1',
+    color: theme.textSecondary,
     marginTop: 8,
   },
   link: {
-    color: '#38bdf8',
+    color: isDark ? '#38bdf8' : '#0369a1',
     fontWeight: '700',
   },
 });

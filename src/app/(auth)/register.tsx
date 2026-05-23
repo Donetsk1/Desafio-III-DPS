@@ -3,9 +3,15 @@ import React, { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '@/context/AuthContext';
+import { useAppTheme } from '@/context/ThemeContext';
+import { useTheme } from '@/hooks/use-theme';
 
 export default function RegisterScreen() {
   const { register } = useAuth();
+  const { colorScheme } = useAppTheme();
+  const theme = useTheme();
+  const isDark = colorScheme === 'dark';
+  const styles = createStyles(theme, isDark);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -64,49 +70,53 @@ export default function RegisterScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (
+  theme: { text: string; background: string; backgroundElement: string; textSecondary: string },
+  isDark: boolean,
+) =>
+  StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
     padding: 24,
     gap: 14,
-    backgroundColor: '#0f172a',
+    backgroundColor: theme.background,
   },
   title: {
-    color: '#f8fafc',
+    color: theme.text,
     fontSize: 30,
     fontWeight: '800',
   },
   subtitle: {
-    color: '#cbd5e1',
+    color: theme.textSecondary,
     marginBottom: 8,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: isDark ? '#334155' : '#cbd5e1',
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: '#f8fafc',
-    backgroundColor: '#111827',
+    color: theme.text,
+    backgroundColor: theme.backgroundElement,
   },
   button: {
     marginTop: 6,
     borderRadius: 10,
-    backgroundColor: '#38bdf8',
+    backgroundColor: isDark ? '#38bdf8' : '#0ea5e9',
     paddingVertical: 12,
     alignItems: 'center',
   },
   buttonText: {
-    color: '#082f49',
+    color: isDark ? '#082f49' : '#f0f9ff',
     fontWeight: '700',
   },
   helperText: {
-    color: '#cbd5e1',
+    color: theme.textSecondary,
     marginTop: 8,
   },
   link: {
-    color: '#22c55e',
+    color: isDark ? '#22c55e' : '#16a34a',
     fontWeight: '700',
   },
 });
