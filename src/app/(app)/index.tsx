@@ -183,6 +183,34 @@ function sanitizeTransaction(
   };
 }
 
+function generateTransactionId() {
+  const cryptoApi = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+
+  if (cryptoApi?.randomUUID) {
+    return cryptoApi.randomUUID();
+  }
+
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `tx-${Date.now()}-${randomPart}`;
+}
+
+function ensureUniqueTransactionIds(source: Transaction[]) {
+  const seen = new Map<string, number>();
+
+  return source.map((item, index) => {
+    const baseId = normalizeLabel(item.id) || `legacy-${index}`;
+    const currentCount = seen.get(baseId) ?? 0;
+    seen.set(baseId, currentCount + 1);
+
+    if (currentCount === 0) {
+      return { ...item, id: baseId };
+    }
+
+    return { ...item, id: `${baseId}-${currentCount}` };
+  });
+}
+
 export default function ProtectedHomeScreen() {
   const { user, logout } = useAuth();
   const { colorScheme, toggleColorScheme } = useAppTheme();
@@ -276,9 +304,21 @@ export default function ProtectedHomeScreen() {
           return;
         }
 
-        const sanitized = parsed.map((item, index) =>
+        const mapped = parsed.map((item, index) =>
           sanitizeTransaction(item, index),
         );
+        const sanitized = ensureUniqueTransactionIds(mapped);
+        const didNormalizeIds = mapped.some(
+          (item, index) => item.id !== sanitized[index].id,
+        );
+
+        if (didNormalizeIds) {
+          await AsyncStorage.setItem(
+            getStorageKey(user.email),
+            JSON.stringify(sanitized),
+          );
+        }
+
         setTransactions(sanitized);
       } catch {
         setTransactions([]);
@@ -406,11 +446,13 @@ export default function ProtectedHomeScreen() {
       return;
     }
 
+    const normalizedTransactions = ensureUniqueTransactionIds(nextTransactions);
+
     await AsyncStorage.setItem(
       getStorageKey(user.email),
-      JSON.stringify(nextTransactions),
+      JSON.stringify(normalizedTransactions),
     );
-    setTransactions(nextTransactions);
+    setTransactions(normalizedTransactions);
   };
 
   const persistAccounts = async (nextAccounts: string[]) => {
@@ -723,7 +765,7 @@ export default function ProtectedHomeScreen() {
     }
 
     const base: Transaction = {
-      id: editingId ?? `${Date.now()}`,
+      id: editingId ?? generateTransactionId(),
       amount: payload.amount,
       type: form.type,
       category: payload.category,
@@ -1095,8 +1137,8 @@ export default function ProtectedHomeScreen() {
         </Text>
 
         <View style={styles.budgetEditor}>
-          {FIXED_CATEGORIES.map((category) => (
-            <View key={category} style={styles.budgetEditorRow}>
+          {FIXED_CATEGORIES.map((category, index) => (
+            <View key={`${category}-${index}`} style={styles.budgetEditorRow}>
               <Text style={styles.budgetCategory}>{category}</Text>
               <TextInput
                 keyboardType="decimal-pad"
@@ -1117,7 +1159,7 @@ export default function ProtectedHomeScreen() {
           </Pressable>
         </View>
 
-        {budgetSummaries.map((budget) => {
+        {budgetSummaries.map((budget, index) => {
           const clampedPercentage = Math.min(budget.percentage, 100);
           const indicatorStyle =
             budget.status === "critical"
@@ -1127,7 +1169,7 @@ export default function ProtectedHomeScreen() {
                 : styles.budgetFillNormal;
 
           return (
-            <View key={budget.category} style={styles.budgetRow}>
+            <View key={`${budget.category}-${index}`} style={styles.budgetRow}>
               <View style={styles.budgetHeaderRow}>
                 <Text style={styles.budgetCategory}>{budget.category}</Text>
                 <Text

@@ -24,7 +24,7 @@ function RootNavigator() {
     }
 
     if (user && inAuthGroup) {
-      router.replace('/(app)');
+      router.replace('/');
     }
   }, [isBootstrapping, router, segments, user]);
 
@@ -36,12 +36,7 @@ function RootNavigator() {
     );
   }
 
-  return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(app)" />
-    </Stack>
-  );
+  return <Stack screenOptions={{ headerShown: false }} />;
 }
 
 function RootLayoutContent() {
