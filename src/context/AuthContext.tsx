@@ -40,6 +40,10 @@ function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 async function getUsers() {
   const raw = await AsyncStorage.getItem(USERS_KEY);
   if (!raw) {
@@ -88,6 +92,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { ok: false, message: "Completa email y contrasena." };
     }
 
+    if (!isValidEmail(normalizedEmail)) {
+      return { ok: false, message: "El formato del email no es valido." };
+    }
+
     const users = await getUsers();
     const found = users.find(
       (storedUser) =>
@@ -111,6 +119,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (!normalizedEmail || !normalizedPassword) {
       return { ok: false, message: "Completa email y contrasena." };
+    }
+
+    if (!isValidEmail(normalizedEmail)) {
+      return { ok: false, message: "El formato del email no es valido." };
     }
 
     if (normalizedPassword.length < 6) {
