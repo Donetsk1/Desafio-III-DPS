@@ -1,10 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
+    createContext,
+    useContext,
+    useEffect,
+    useMemo,
+    useState,
 } from "react";
 
 type StoredUser = {
@@ -28,16 +28,28 @@ type AuthContextType = {
     password: string,
   ) => Promise<{ ok: boolean; message?: string }>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<{ ok: boolean; message?: string }>;
   switchAccount: (email: string) => Promise<void>;
 };
 
 const USERS_KEY = "demo_users";
 const SESSION_KEY = "demo_session";
+const USER_DATA_KEY_PREFIXES = [
+  "demo_transactions_",
+  "demo_accounts_",
+  "demo_budgets_",
+  "demo_categories_",
+] as const;
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
+}
+
+function getUserScopedKeys(email: string) {
+  const normalizedEmail = normalizeEmail(email);
+  return USER_DATA_KEY_PREFIXES.map((prefix) => `${prefix}${normalizedEmail}`);
 }
 
 function isValidEmail(value: string) {
@@ -159,6 +171,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const deleteAccount = async () => {
+    if (!user?.email) {
+      return { ok: false, message: "No hay una cuenta activa para eliminar." };
+    }
+
+    const currentEmail = normalizeEmail(user.email);
+    const users = await getUsers();
+    const updatedUsers = users.filter(
+      (storedUser) => normalizeEmail(storedUser.email) !== currentEmail,
+    );
+
+    await AsyncStorage.setItem(USERS_KEY, JSON.stringify(updatedUsers));
+    await AsyncStorage.multiRemove([
+      SESSION_KEY,
+      ...getUserScopedKeys(currentEmail),
+    ]);
+    setUser(null);
+
+    return { ok: true };
+  };
+
   const switchAccount = async (email: string) => {
     const users = await getUsers();
     const found = users.find(
@@ -181,6 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       register,
       logout,
+      deleteAccount,
       switchAccount,
     }),
     [isBootstrapping, user],

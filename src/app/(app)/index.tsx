@@ -1,18 +1,18 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker, {
-  DateTimePickerEvent,
+    DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
+    Alert,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 
 import { useAuth } from "@/context/AuthContext";
@@ -144,9 +144,9 @@ function isSameMonth(left: Date, right: Date) {
   );
 }
 
-function createBudgetDrafts(limits: BudgetLimits) {
+function createBudgetDrafts(limits: BudgetLimits, categoryList: string[]) {
   return Object.fromEntries(
-    FIXED_CATEGORIES.map((category) => [
+    categoryList.map((category) => [
       category,
       String(limits[category] ?? 0),
     ]),
@@ -212,7 +212,7 @@ function ensureUniqueTransactionIds(source: Transaction[]) {
 }
 
 export default function ProtectedHomeScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount } = useAuth();
   const { colorScheme, toggleColorScheme } = useAppTheme();
   const theme = useTheme();
   const isDark = colorScheme === "dark";
@@ -272,7 +272,7 @@ export default function ProtectedHomeScreen() {
   const [categories, setCategories] = useState<string[]>([]);
   const [budgetLimits, setBudgetLimits] = useState<BudgetLimits>(DEFAULT_BUDGET_LIMITS);
   const [budgetDrafts, setBudgetDrafts] = useState<Record<string, string>>(
-    createBudgetDrafts(DEFAULT_BUDGET_LIMITS),
+    createBudgetDrafts(DEFAULT_BUDGET_LIMITS, FIXED_CATEGORIES),
   );
   const [form, setForm] = useState<TransactionForm>(EMPTY_FORM);
   const [accountName, setAccountName] = useState("");
@@ -283,6 +283,8 @@ export default function ProtectedHomeScreen() {
   const [filterPeriod, setFilterPeriod] = useState<PeriodFilter>("all");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isFormModalVisible, setIsFormModalVisible] = useState(false);
+  const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   useEffect(() => {
     const loadTransactions = async () => {
@@ -368,14 +370,14 @@ export default function ProtectedHomeScreen() {
     const loadBudgets = async () => {
       if (!user?.email) {
         setBudgetLimits(DEFAULT_BUDGET_LIMITS);
-        setBudgetDrafts(createBudgetDrafts(DEFAULT_BUDGET_LIMITS));
+        setBudgetDrafts(createBudgetDrafts(DEFAULT_BUDGET_LIMITS, FIXED_CATEGORIES));
         return;
       }
 
       const raw = await AsyncStorage.getItem(getBudgetsStorageKey(user.email));
       if (!raw) {
         setBudgetLimits(DEFAULT_BUDGET_LIMITS);
-        setBudgetDrafts(createBudgetDrafts(DEFAULT_BUDGET_LIMITS));
+        setBudgetDrafts(createBudgetDrafts(DEFAULT_BUDGET_LIMITS, FIXED_CATEGORIES));
         return;
       }
 
@@ -383,21 +385,28 @@ export default function ProtectedHomeScreen() {
         const parsed = JSON.parse(raw) as unknown;
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
           setBudgetLimits(DEFAULT_BUDGET_LIMITS);
-          setBudgetDrafts(createBudgetDrafts(DEFAULT_BUDGET_LIMITS));
+          setBudgetDrafts(createBudgetDrafts(DEFAULT_BUDGET_LIMITS, FIXED_CATEGORIES));
           return;
         }
 
         const normalized: BudgetLimits = { ...DEFAULT_BUDGET_LIMITS };
-        for (const category of FIXED_CATEGORIES) {
-          const value = Number((parsed as Record<string, unknown>)[category]);
-          normalized[category] = Number.isFinite(value) && value >= 0 ? value : 0;
+        for (const [category, rawValue] of Object.entries(
+          parsed as Record<string, unknown>,
+        )) {
+          const safeCategory = normalizeLabel(category);
+          if (!safeCategory) {
+            continue;
+          }
+
+          const value = Number(rawValue);
+          normalized[safeCategory] = Number.isFinite(value) && value >= 0 ? value : 0;
         }
 
         setBudgetLimits(normalized);
-        setBudgetDrafts(createBudgetDrafts(normalized));
+        setBudgetDrafts(createBudgetDrafts(normalized, FIXED_CATEGORIES));
       } catch {
         setBudgetLimits(DEFAULT_BUDGET_LIMITS);
-        setBudgetDrafts(createBudgetDrafts(DEFAULT_BUDGET_LIMITS));
+        setBudgetDrafts(createBudgetDrafts(DEFAULT_BUDGET_LIMITS, FIXED_CATEGORIES));
       }
     };
 
@@ -477,7 +486,7 @@ export default function ProtectedHomeScreen() {
       JSON.stringify(nextBudgetLimits),
     );
     setBudgetLimits(nextBudgetLimits);
-    setBudgetDrafts(createBudgetDrafts(nextBudgetLimits));
+    setBudgetDrafts(createBudgetDrafts(nextBudgetLimits, availableCategories));
   };
 
   const persistCategories = async (nextCategories: string[]) => {
@@ -501,8 +510,35 @@ export default function ProtectedHomeScreen() {
   const availableCategories = useMemo(() => {
     return Array.from(
       new Set([...FIXED_CATEGORIES, ...categories, ...transactions.map((item) => item.category)]),
-    ).filter(Boolean);
+    )
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
   }, [categories, transactions]);
+
+  const managedCategories = useMemo(() => {
+    return [...categories].sort((left, right) =>
+      left.localeCompare(right, "es", { sensitivity: "base" }),
+    );
+  }, [categories]);
+
+  useEffect(() => {
+    setBudgetDrafts((prev) => {
+      const next = createBudgetDrafts(budgetLimits, availableCategories);
+      const hasSameSize = Object.keys(prev).length === Object.keys(next).length;
+
+      if (hasSameSize) {
+        const isUnchanged = Object.keys(next).every(
+          (category) => prev[category] === next[category],
+        );
+
+        if (isUnchanged) {
+          return prev;
+        }
+      }
+
+      return next;
+    });
+  }, [availableCategories, budgetLimits]);
 
   const accountSummaries: AccountSummary[] = useMemo(() => {
     return availableAccounts.map((name) => ({
@@ -611,6 +647,7 @@ export default function ProtectedHomeScreen() {
     setForm(EMPTY_FORM);
     setEditingId(null);
     setShowDatePicker(false);
+    setIsCategoryMenuOpen(false);
   };
 
   const resetAccountDraft = () => {
@@ -631,7 +668,7 @@ export default function ProtectedHomeScreen() {
   const handleSaveBudgets = async () => {
     const nextBudgetLimits: BudgetLimits = {};
 
-    for (const category of FIXED_CATEGORIES) {
+    for (const category of availableCategories) {
       const rawValue = Number(budgetDrafts[category]);
       if (!Number.isFinite(rawValue) || rawValue < 0) {
         Alert.alert(
@@ -653,6 +690,7 @@ export default function ProtectedHomeScreen() {
 
   const openCreateModal = () => {
     resetForm();
+    setIsCategoryMenuOpen(false);
     setIsFormModalVisible(true);
   };
 
@@ -679,6 +717,37 @@ export default function ProtectedHomeScreen() {
     resetAccountDraft();
   };
 
+  const handleDeleteAccount = (accountToDelete: string) => {
+    Alert.alert(
+      "Eliminar cuenta",
+      `Se eliminará la cuenta \"${accountToDelete}\" y sus transacciones asociadas. Esta acción no se puede deshacer.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: async () => {
+            const nextAccounts = accounts.filter((item) => item !== accountToDelete);
+            const nextTransactions = transactions.filter(
+              (item) => item.account !== accountToDelete,
+            );
+
+            await persistAccounts(nextAccounts);
+            await persistTransactions(nextTransactions);
+
+            if (filterAccount === accountToDelete) {
+              setFilterAccount("all");
+            }
+
+            if (form.account === accountToDelete) {
+              setForm((prev) => ({ ...prev, account: "" }));
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleCreateCategory = async () => {
     const nextCategory = normalizeLabel(categoryName);
 
@@ -693,8 +762,45 @@ export default function ProtectedHomeScreen() {
     }
 
     await persistCategories([...categories, nextCategory]);
-    setForm((prev) => ({ ...prev, category: nextCategory }));
     resetCategoryDraft();
+  };
+
+  const handleDeleteCategory = (categoryToDelete: string) => {
+    Alert.alert(
+      "Eliminar categoría",
+      `La categoría \"${categoryToDelete}\" se eliminará y sus transacciones pasarán a \"Sin categoria\".`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: async () => {
+            const nextCategories = categories.filter(
+              (item) => item !== categoryToDelete,
+            );
+            const nextTransactions = transactions.map((item) =>
+              item.category === categoryToDelete
+                ? { ...item, category: "Sin categoria" }
+                : item,
+            );
+            const nextBudgetLimits = { ...budgetLimits };
+            delete nextBudgetLimits[categoryToDelete];
+
+            await persistCategories(nextCategories);
+            await persistTransactions(nextTransactions);
+            await persistBudgets(nextBudgetLimits);
+
+            if (filterCategory === categoryToDelete) {
+              setFilterCategory("all");
+            }
+
+            if (form.category === categoryToDelete) {
+              setForm((prev) => ({ ...prev, category: "" }));
+            }
+          },
+        },
+      ],
+    );
   };
 
   const currentFormDate = parseDate(form.date) ?? new Date();
@@ -848,6 +954,39 @@ export default function ProtectedHomeScreen() {
     ]);
   };
 
+  const onDeleteAccount = () => {
+    if (isDeletingAccount) {
+      return;
+    }
+
+    Alert.alert(
+      "Eliminar cuenta",
+      "Esta acción eliminará tu usuario y todos tus datos (cuentas, transacciones, categorías y presupuestos).",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar cuenta",
+          style: "destructive",
+          onPress: async () => {
+            setIsDeletingAccount(true);
+            try {
+              const result = await deleteAccount();
+
+              if (!result.ok) {
+                Alert.alert("Error", result.message ?? "No se pudo eliminar la cuenta.");
+                return;
+              }
+
+              Alert.alert("Cuenta eliminada", "Tu cuenta y sus datos fueron eliminados.");
+            } finally {
+              setIsDeletingAccount(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const totalIngresos = useMemo(
     () =>
       filteredTransactions
@@ -911,10 +1050,10 @@ export default function ProtectedHomeScreen() {
   const budgetSummaries = useMemo(() => {
     const now = new Date();
 
-    return FIXED_CATEGORIES.map((category) =>
+    return availableCategories.map((category) =>
       calculateMonthlyBudgetUsage(category, now),
     );
-  }, [budgetLimits, transactions]);
+  }, [availableCategories, budgetLimits, transactions]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -1024,8 +1163,61 @@ export default function ProtectedHomeScreen() {
               >
                 Saldo: ${account.balance.toFixed(2)}
               </Text>
+              <View style={styles.actionRow}>
+                <Pressable
+                  onPress={() => handleDeleteAccount(account.name)}
+                  style={[styles.button, styles.buttonDanger]}
+                >
+                  <Text style={styles.buttonText}>Eliminar</Text>
+                </Pressable>
+              </View>
             </View>
           ))
+        )}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Categorías</Text>
+        <TextInput
+          onChangeText={setCategoryName}
+          placeholder="Nueva categoría"
+          placeholderTextColor={placeholderTextColor}
+          style={styles.input}
+          value={categoryName}
+        />
+        <View style={styles.actionRow}>
+          <Pressable
+            onPress={handleCreateCategory}
+            style={[styles.button, styles.buttonPrimary]}
+          >
+            <Text style={styles.buttonText}>Agregar categoría</Text>
+          </Pressable>
+          <Pressable
+            onPress={resetCategoryDraft}
+            style={[styles.button, styles.buttonSecondary]}
+          >
+            <Text style={styles.buttonText}>Limpiar</Text>
+          </Pressable>
+        </View>
+
+        {managedCategories.length === 0 ? (
+          <Text style={styles.emptyText}>Aún no hay categorías registradas.</Text>
+        ) : (
+          <View style={styles.metricsRow}>
+            {managedCategories.map((cat) => (
+              <View key={cat} style={styles.accountCard}>
+                <Text style={styles.accountName}>{cat}</Text>
+                <View style={styles.actionRow}>
+                  <Pressable
+                    onPress={() => handleDeleteCategory(cat)}
+                    style={[styles.button, styles.buttonDanger]}
+                  >
+                    <Text style={styles.buttonText}>Eliminar</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
         )}
       </View>
 
@@ -1137,7 +1329,7 @@ export default function ProtectedHomeScreen() {
         </Text>
 
         <View style={styles.budgetEditor}>
-          {FIXED_CATEGORIES.map((category, index) => (
+          {availableCategories.map((category, index) => (
             <View key={`${category}-${index}`} style={styles.budgetEditorRow}>
               <Text style={styles.budgetCategory}>{category}</Text>
               <TextInput
@@ -1146,7 +1338,7 @@ export default function ProtectedHomeScreen() {
                 placeholder="Límite mensual"
                 placeholderTextColor={placeholderTextColor}
                 style={styles.budgetInput}
-                value={budgetDrafts[category] ?? ""}
+                value={budgetDrafts[category] ?? String(budgetLimits[category] ?? 0)}
               />
             </View>
           ))}
@@ -1272,9 +1464,19 @@ export default function ProtectedHomeScreen() {
         )}
       </View>
 
-      <Pressable onPress={logout} style={[styles.button, styles.logoutButton]}>
-        <Text style={styles.buttonText}>Cerrar sesion</Text>
-      </Pressable>
+      <View style={styles.actionRow}>
+        <Pressable onPress={logout} style={[styles.button, styles.logoutButton, { flex: 1 }]}>
+          <Text style={styles.buttonText}>Cerrar sesion</Text>
+        </Pressable>
+        <Pressable
+          onPress={onDeleteAccount}
+          style={[styles.button, styles.buttonDanger, { flex: 1, marginTop: 2 }]}
+        >
+          <Text style={styles.buttonText}>
+            {isDeletingAccount ? "Eliminando..." : "Eliminar cuenta"}
+          </Text>
+        </Pressable>
+      </View>
 
       <Modal
         animationType="slide"
@@ -1321,43 +1523,40 @@ export default function ProtectedHomeScreen() {
                 value={form.amount}
               />
               <Text style={styles.filterLabel}>Categoría</Text>
-              <TextInput
-                onChangeText={setCategoryName}
-                placeholder="Nueva categoría"
-                placeholderTextColor={placeholderTextColor}
-                style={styles.input}
-                value={categoryName}
-              />
-              <View style={styles.actionRow}>
-                <Pressable
-                  onPress={handleCreateCategory}
-                  style={[styles.button, styles.buttonPrimary]}
-                >
-                  <Text style={styles.buttonText}>Agregar categoría</Text>
-                </Pressable>
-                <Pressable
-                  onPress={resetCategoryDraft}
-                  style={[styles.button, styles.buttonSecondary]}
-                >
-                  <Text style={styles.buttonText}>Limpiar</Text>
-                </Pressable>
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={styles.chipRow}>
-                  {availableCategories.map((cat) => (
-                    <Pressable
-                      key={cat}
-                      onPress={() => setForm((prev) => ({ ...prev, category: cat }))}
-                      style={[
-                        styles.chip,
-                        form.category === cat && styles.chipActive,
-                      ]}
-                    >
-                      <Text style={styles.chipText}>{cat}</Text>
-                    </Pressable>
-                  ))}
+              <Pressable
+                onPress={() => setIsCategoryMenuOpen((prev) => !prev)}
+                style={styles.dropdownTrigger}
+              >
+                <Text style={form.category ? styles.dateValue : styles.emptyText}>
+                  {form.category || "Selecciona una categoría"}
+                </Text>
+                <Text style={styles.dropdownArrow}>{isCategoryMenuOpen ? "▲" : "▼"}</Text>
+              </Pressable>
+              {isCategoryMenuOpen ? (
+                <View style={styles.dropdownMenu}>
+                  {availableCategories.length === 0 ? (
+                    <Text style={styles.emptyText}>No hay categorías disponibles.</Text>
+                  ) : (
+                    <ScrollView nestedScrollEnabled style={styles.dropdownList}>
+                      {availableCategories.map((cat) => (
+                        <Pressable
+                          key={cat}
+                          onPress={() => {
+                            setForm((prev) => ({ ...prev, category: cat }));
+                            setIsCategoryMenuOpen(false);
+                          }}
+                          style={[
+                            styles.dropdownOption,
+                            form.category === cat && styles.dropdownOptionSelected,
+                          ]}
+                        >
+                          <Text style={styles.dateValue}>{cat}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  )}
                 </View>
-              </ScrollView>
+              ) : null}
               <TextInput
                 keyboardType="numeric"
                 onChangeText={(value) =>
@@ -1563,6 +1762,42 @@ const createStyles = (palette: ScreenPalette) =>
       paddingVertical: 10,
       color: palette.textPrimary,
       backgroundColor: palette.inputBg,
+    },
+    dropdownTrigger: {
+      borderWidth: 1,
+      borderColor: palette.inputBorder,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: palette.inputBg,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    dropdownArrow: {
+      color: palette.textSecondary,
+      fontWeight: "700",
+    },
+    dropdownMenu: {
+      borderWidth: 1,
+      borderColor: palette.inputBorder,
+      borderRadius: 10,
+      backgroundColor: palette.inputBg,
+      maxHeight: 180,
+      paddingVertical: 4,
+      paddingHorizontal: 4,
+    },
+    dropdownList: {
+      maxHeight: 170,
+    },
+    dropdownOption: {
+      paddingHorizontal: 10,
+      paddingVertical: 9,
+      borderRadius: 8,
+    },
+    dropdownOptionSelected: {
+      backgroundColor: palette.chipBg,
     },
     dateValue: {
       color: palette.textPrimary,
